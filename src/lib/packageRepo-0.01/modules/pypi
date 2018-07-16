@@ -1,0 +1,139 @@
+#! /usr/bin/env bash
+
+http::PypiService::url_mappings() {
+    url::add_handler '^\/$' GET http::PypiService::response_index
+    url::add_handler '^\/$' POST http::PypiService::response_upload
+    url::add_handler '^\/[^\/][^\/]*[\/]*$' GET http::PypiService::response_package_folder
+    url::add_handler '^\/[^\/][^\/]*\/[^\/][^\/]*[\/]*$' GET http::PypiService::response_package_file
+}
+
+http::PypiService::response_package_file() {
+    . "$(packagerepo --lib)"
+
+    local _method="${1}"
+    local _request="${2}"
+    local _headers="${3}"
+    local _content="${4}"
+
+    local _repo_folder="$(package_repo::repository::path)"
+
+    local _package_file="$(
+        basename "$(
+            echo "${_request}" |
+            sed -e 's/[\/]*$//g'
+        )"
+    )"
+
+    local _local_file="${_repo_folder}/${_package_file}"
+
+    if [ ! -f "${_local_file}" ]
+    then
+        http::404_error
+        return 255
+    fi
+
+    response::set_status 200 "HTTP/1.1"
+    header::server_type
+    header::content_type "$(file -b --mime-type "${_local_file}")"
+    header::content_length "$(stat -c'%s' "${_local_file}")"
+    header::access_control '*'
+    response::send < "${_local_file}"
+}
+
+http::PypiService::response_package_folder() {
+    . "$(packagerepo --lib)"
+
+    local _method="${1}"
+    local _request="${2}"
+    local _headers="${3}"
+    local _content="${4}"
+
+    local _repo_folder="$(package_repo::repository::path)"
+    local _template_folder="$(package_repo::templates::path)"
+    local _template_file="${_template_folder}/pypi-index.html"
+
+    local _package_name="$(
+        basename "$(
+            echo "${_request}" |
+            sed -e 's/[\/]*$//g'
+        )"
+    )"
+
+    local _contents="$(
+        find "${_repo_folder}" -maxdepth 1 -mindepth 1 -name '*' -type f -printf "%f\n" |
+        grep -i '^'"${_package_name}"'[\-][0-9][0-9]*[\.][0-9][0-9]*' |
+        sort -u |
+        while read _package_file
+        do
+            echo "<a href=\"/$(echo ${_package_name} | tr '[A-Z]' '[a-z]')/${_package_file}\">${_package_file}</a></br>"
+        done
+    )"
+
+    http::response_html <<< "$(
+        m4 \
+            --prefix-builtins \
+            -D__CONTENTS__="${_contents}" \
+            -D__TITLE__="<title>Links for ${_package_name}</title>" \
+            -D__HEADER__="<h1>Links for ${_package_name}</h1>" \
+            < "${_template_file}"
+    )"
+}
+
+http::PypiService::response_index() {
+    . "$(packagerepo --lib)"
+
+    local _repo_folder="$(package_repo::repository::path)"
+    local _template_folder="$(package_repo::templates::path)"
+    local _template_file="${_template_folder}/pypi-index.html"
+    local _package_name
+
+    local _contents="$(
+        find "${_repo_folder}" -maxdepth 1 -mindepth 1 -type f -printf "%f\n" |
+        http::PypiService::_package_to_dir |
+        sort -u |
+        tr '[A-Z]' '[a-z]' |
+        while read _package_name
+        do
+            echo "<a href=\"/${_package_name}/\">${_package_name}</a>"
+        done
+    )"
+
+    http::response_html <<< "$(
+        m4 \
+            --prefix-builtins \
+            -D__CONTENTS__="${_contents}" \
+            -D__TITLE__= \
+            -D__HEADER__= \
+            < "${_template_file}"
+    )"
+}
+
+http::PypiService::response_upload() {
+    . "$(packagerepo --lib)"
+
+    local _method="${1}"
+    local _request="${2}"
+    local _headers="${3}"
+    local _content="${4}"
+    local _b64_content="${5}"
+
+    local _extraction_folder
+    local _repo_folder="$(package_repo::repository::path)"
+
+    if _extraction_folder="$(mktemp -d)"
+    then
+        echo "${_b64_content}" | base64 --decode | munpack -q -C "${_extraction_folder}"
+
+        rsync -az "${_extraction_folder}/" "${_repo_folder}/" \
+            --exclude 'part[0-9]*' \
+            --exclude '*.desc'
+
+        rm -rf "${_extraction_folder}"
+    fi
+
+    echo | http::response_plain
+}
+
+http::PypiService::_package_to_dir() {
+    sed -e 's/[\-][0-9][0-9]*[\.][0-9][0-9]*.*//g'
+}

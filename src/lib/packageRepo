@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+
+package_name=packageRepo
+first_name="${BASH_SOURCE[0]}"
+actual_name="$(readlink -f "${first_name}")"
+local_path="$(dirname "${actual_name}")"
+
+export PACKAGEREPO_VERSION="$(
+    find "${local_path}/${package_name}"-[.0-9]* -maxdepth 0 -mindepth 0 -type d -printf "%f\n" |
+    awk -F- '{print $NF;}' |
+    sort -nr |
+    head -1
+)"
+
+lib_path="${local_path}/${package_name}-${PACKAGEREPO_VERSION}"
+
+export _PACKAGEREPO_SHARE_PATH="$(echo ${local_path}/${package_name} | sed -e 's/\/lib\//\/share\//1')"
+export _PACKAGEREPO_SUBCOMMANDS_PATH="${lib_path}/subcommands"
+export _PACKAGEREPO_MODULE_PATH="${lib_path}/modules"
+export _PACKAGEREPO_TEMPLATES_PATH="${lib_path}/templates"
+export _PACKAGEREPO_REPO_PATH="${_PACKAGEREPO_REPO_PATH}"
+
+. "${lib_path}/logging"
+
+package_repo::version() {
+    echo "${PACKAGEREPO_VERSION}"
+}
+
+package_repo::subcommands::path() {
+    echo "${_PACKAGEREPO_SUBCOMMANDS_PATH}"
+}
+
+package_repo::modules::path() {
+    echo "${_PACKAGEREPO_MODULE_PATH}"
+}
+
+package_repo::templates::path() {
+    echo "${_PACKAGEREPO_TEMPLATES_PATH}"
+}
+
+package_repo::tools::path() {
+    echo "${_PACKAGEREPO_SHARE_PATH}/tools"
+}
+
+package_repo::repository::path() {
+    if [ -z "${1}" ]
+    then
+        echo "${_PACKAGEREPO_REPO_PATH:?Repository path is unset}"
+    else
+        export _PACKAGEREPO_REPO_PATH="${1}"
+    fi
+}
+
+package_repo::subcommands() {
+    find "$(package_repo::subcommands::path)" -type f -printf "%f\n" 2>/dev/null
+}
+
+hash -r

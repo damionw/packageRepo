@@ -1,1 +1,1 @@
-# packageRepo
+# packageRepo - Bash toolchain to host various package repos
