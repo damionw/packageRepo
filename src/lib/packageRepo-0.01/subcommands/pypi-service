@@ -21,6 +21,7 @@ showhelp() {
     local -A _keywords=(
         [folder]="Path for the repo"
         [version]="Produce the version string"
+        [allow]="Network to allow connections from"
         [port]="TCP Port to listen on"
         [help]="Display instructions"
     )
@@ -56,7 +57,7 @@ showhelp() {
 #       will cause the first non option parameter to be discarded. Here, we just
 #       use -h (help)
 #===================================================================================
-long_options="help,version,debug,info,warning,error,fatal,folder::,repo::,port:"
+long_options="help,version,debug,info,warning,error,fatal,folder::,repo::,port:,allow:"
 
 OPTION_TEMP=$(getopt -a -o hv --long ${long_options} -- "$@")
 
@@ -74,6 +75,7 @@ eval set -- "$OPTION_TEMP"
 #       source this file.
 #===================================================================================
 port=17171
+allowed_addr=()
 
 while true
 do
@@ -81,6 +83,11 @@ do
         --debug|--info|--warning|--error|--fatal)
             logging::set_severity "$(echo "${1}" | sed -e 's/^[\-]*//g')"
             shift
+            ;;
+
+        --allow)
+            allowed_addr[${#allowed_addr[@]}]="${2}"
+            shift 2
             ;;
 
         --port)
@@ -126,5 +133,11 @@ modules_folder="$(package_repo::modules::path)"
 #
 #===================================================================================
 ${tools_folder}/webserve \
+    $(
+        for ((_index=0; _index <= ${#allowed_addr[@]}; ++_index))
+        do
+            echo " --allow=${allowed_addr[${_index}]}"
+        done
+    ) \
     --module="${modules_folder}/pypi" \
     --port=${port}
